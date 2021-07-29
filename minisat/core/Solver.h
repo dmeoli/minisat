@@ -27,9 +27,12 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #include "minisat/mtl/IntMap.h"
 #include "minisat/utils/Options.h"
 #include "minisat/core/SolverTypes.h"
+#include <iostream>
 
+#include <vector>
 
 namespace Minisat {
+
 
 //=================================================================================================
 // Solver -- the main class:
@@ -79,14 +82,8 @@ public:
     void    toDimacs     (const char *file, const vec<Lit>& assumps);
     void    toDimacs     (FILE* f, Clause& c, vec<Var>& map, Var& max);
 
-    void    snapState     (FILE* f, const vec<Lit>& assumps, const Lit next);            // Comments by Fei: snap the state to file in DIMACS-format.
-    void    snapState     (const char *file, const vec<Lit>& assumps, const Lit next);
-    void    snapState     (FILE* f, Clause& c, vec<Var>& map, Var& max);
-
-    void    saveState(const vec<Lit>& assumps); // Comments by Fei: save the state in field env_state.
+    void    saveState(const vec<Lit>& assumps, int current_depth); // Comments by Fei: save the state in field env_state.
     int     saveState(Clause& c, int used_space); // Comments by Fei: sub-routine to a clause
-    int     handle_writting_state(int temp, int used_space); // Comments by Fei: sub-routine to handle snprintf.
-
 
     // Convenience versions of 'toDimacs()':
     void    toDimacs     (const char* file);
@@ -132,6 +129,7 @@ public:
     LSet       conflict;          // If problem is unsatisfiable (possibly under assumptions),
                                   // this vector represent the final conflict clause expressed in the assumptions.
 
+
     // Mode of operation:
     //
     int       verbosity;
@@ -154,13 +152,18 @@ public:
 
     int       learntsize_adjust_start_confl;
     double    learntsize_adjust_inc;
-    char*     snapTo;             // Comments by Fei. this is the filename to write down snapState.
-    bool      env_hold;           // Comments by Fei. this is the for adapting solver to Reinforcement Learning environment. 
+    bool      env_hold;           // Comments by Fei. this is the for adapting solver to Reinforcement Learning environment.
                                   // Comments by Fei. When env_hold is true, the system is holding on the next decision variable!
                                   // Comments by Fei. otherwise, the system is done (sat or unsat)
     double    env_reward;         // Comments by Fei. This the variable that contains the reward of each step!
-    char*     env_state;          // Comments by Fei. This is the pointer to the current state (just like the file content of snapTo, but in heap memory)
-    int       env_state_size;     // Comments by Fei. This is the value of current allocated state heap memory size.
+    StateMode state_mode; // env_state_size was used before for this purpose
+    // Graph-Q-SAT UPD: Make vars for storing the state.
+    std::vector<int> env_state_metadata = std::vector<int>(6);
+    std::vector<int> env_state_assignments;
+    std::vector<double> env_state_activities;
+    std::vector<std::vector<int> > env_state_clauses;
+    std::vector<int> curr_clause;
+
     int       current_restarts;   // Comments by Fei. This is to track how many restarts have we done. Adopted from a local variable in solve_()
     int       number_of_conflicts;// Comments by Fei. This is to track how many conflicts are allowed in a given restart cycle. Adopted from the parameter of search()
     int       conflictCounts;     // Comments by Fei. This is to track how many conflicts have generated for this given restart cycle. Adopted from the local variable in search()
@@ -171,12 +174,15 @@ public:
     vec<Var> extra_frozen;        // Comments by Fei. This is to replace the local variable in simple solve_().
     lbool    result = l_True;     // Comments by Fei. This is to replace the local variable in simple solve_().
     // Comments by Fei. This is short-circuit for pickBranchLit, so I can use it as public fuction
-    Lit default_pickLit() {return pickBranchLit();} 
+    Lit default_pickLit() {return pickBranchLit();}
+    bool with_restarts; //if set to false, no restarts is done if the budget is not set
+    int max_decision_cap;
 
     // Statistics: (read-only member variable)
     //
     uint64_t solves, starts, decisions, rnd_decisions, propagations, conflicts;
     uint64_t dec_vars, num_clauses, num_learnts, clauses_literals, learnts_literals, max_literals, tot_literals;
+
 
 protected:
 
@@ -425,12 +431,6 @@ inline void     Solver::toDimacs     (const char* file, Lit p){ vec<Lit> as; as.
 inline void     Solver::toDimacs     (const char* file, Lit p, Lit q){ vec<Lit> as; as.push(p); as.push(q); toDimacs(file, as); }
 inline void     Solver::toDimacs     (const char* file, Lit p, Lit q, Lit r){ vec<Lit> as; as.push(p); as.push(q); as.push(r); toDimacs(file, as); }
 
-
-//=================================================================================================
-// Debug etc:
-
-
-//=================================================================================================
 }
 
 #endif

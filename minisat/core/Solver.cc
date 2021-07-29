@@ -18,6 +18,9 @@ DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
 OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 **************************************************************************************************/
 
+// Graph-Q-SAT UPD: Most of the changes in this file are related to saving the state to support variable sized states
+// and cap the maximum number of Graph-Q-SAT decisions.
+
 #include <math.h>
 
 #include "minisat/mtl/Alg.h"
@@ -104,15 +107,11 @@ Solver::Solver() :
 {}
 
 
-Solver::~Solver()
-{
-    if (env_state_size > 0) {
-        delete[] env_state;
-        env_state = 0;
-        env_state_size = 0;
+Solver::~Solver() {
+    if (state_mode == STATE_IN_PROGRESS) {
+        state_mode = STATE_SOLVED;
     }
 }
-
 
 //=================================================================================================
 // Minor methods:
@@ -658,8 +657,6 @@ bool Solver::simplify()
     if (remove_satisfied){       // Can be turned off.
         removeSatisfied(clauses);
 
-        // TODO: what todo in if 'remove_satisfied' is false?
-
         // Remove all released variables from the trail:
         for (int i = 0; i < released_vars.size(); i++){
             assert(seen[released_vars[i]] == 0);
@@ -715,7 +712,7 @@ lbool Solver::search(int nof_conflicts) // Comments by Fei: make nof_conflicts a
     // vec<Lit>    learnt_clause; // Comments by Fei: new declaration! Only used locally, should be moved within for loop, right before usage!
     starts++;
 
-    while (true){
+    for (;;){
         confl = propagate(); // Comments by Fei: changed to field variable
         if (confl != CRef_Undef){
             // CONFLICT
@@ -754,13 +751,16 @@ lbool Solver::search(int nof_conflicts) // Comments by Fei: make nof_conflicts a
             }
 
         }else{
+
             // NO CONFLICT
             if ((number_of_conflicts >= 0 && conflictCounts >= number_of_conflicts) || !withinBudget()){ // Comments by Fei: usage of local variables are changed to usage of global variables
                 // Reached bound on number of conflicts:
                 progress_estimate = progressEstimate();
                 cancelUntil(0);
-                return l_Undef; 
+                return l_Undef;
             }
+
+
 
             // Simplify the set of problem clauses:
             if (decisionLevel() == 0 && !simplify()) { 
@@ -772,6 +772,7 @@ lbool Solver::search(int nof_conflicts) // Comments by Fei: make nof_conflicts a
                 reduceDB();
 
             field_of_next = lit_Undef; // Comments by Fei: change to field variable
+
             while (decisionLevel() < assumptions.size()){
                 // Perform user provided assumption:
                 Lit p = assumptions[decisionLevel()];
@@ -787,40 +788,35 @@ lbool Solver::search(int nof_conflicts) // Comments by Fei: make nof_conflicts a
                 }
             }
 
+
             if (field_of_next == lit_Undef){ // Comments by Fei: change to field variable
                 // New variable decision:
                 decisions++;
                 // Comments by Fei: as an RL env, the function should return now, and report the state so that an agent can make the next decision
-                // Comments by Fei: this is the old way to save the state (should optimize it later)
-                // snapState(snapTo, assumptions, mkLit(0,false));
-                // Comments by Fei: this is the new way to save the state. 
                 try {
-                    saveState(assumptions);
+                    saveState(assumptions, decisionLevel());
                 } catch (const char* msg) {
                     printf("%s", msg);
                     return l_False; // Comments by Fei: return l_False without setting env_hold as true is to terminate solver. (Not Sure if good)
                 }
-                if (env_state_size < 0) {
+                if (state_mode == STATE_CONFLICT) {
                     return l_False; // Comments by Fei: this only happens if (!OK). terminate and stating UNSAT!
                 }
-                if (env_state_size == 0) {
+                if (state_mode == STATE_SOLVED) {
                     return l_True; // Comments by Fei: this only happens if solved! terminate and stating SAT (the model may not yet be complete.)
-                    // just NOTE: original design of miniSAT doesn't stop if number of unsalved clauses is 0. It will keep assigning values and finish the model.
+                    // just NOTE: original design of miniSAT doesn't stop if number of unsolved clauses is 0. It will keep assigning values and finish the model.
                 }
 
-                env_hold = true; // Comments by Fei: need to set env_hold to true, because we are holding on to the problem! 
+                env_hold = true; // Comments by Fei: need to set env_hold to true, because we are holding on to the problem!
                 env_reward = -1.0;
                 return l_Undef; // Comments by Fei: the value returned is dummy, when env_hold is true!
 label2:
+
                 // next = pickBranchLit();
-                field_of_next = agent_decision; // Comments by Fei: now we use agent_decision! // Comments by Fei: change to field variable
+                field_of_next = agent_decision; // Comments by Fei: change to field variable
                 //printf("pick_var %s%d\n", sign(field_of_next)? "-" : "", var(field_of_next) + 1);
                 env_hold = false;
                 env_reward = 0.0;
-                //printf("unhold!");
-                // // // Comments by Fei, snap the state and mark the decision
-                // // // Comments by Fei, should comment this out when adapting solver to reinforcement learning environment
-                // // //if (var(next) >= 0) snapState(snapTo, assumptions, next); 
 
                 if (field_of_next == lit_Undef) // Comments by Fei: change to field variable
                     // Model found:
@@ -830,6 +826,8 @@ label2:
             // Increase decision level and enqueue 'next'
             newDecisionLevel();
             uncheckedEnqueue(field_of_next); // Comments by Fei: change to field variable
+
+
         }
     }
 }
@@ -839,13 +837,12 @@ double Solver::progressEstimate() const
 {
     double  progress = 0;
     double  F = 1.0 / nVars();
-
     for (int i = 0; i <= decisionLevel(); i++){
+
         int beg = i == 0 ? 0 : trail_lim[i - 1];
         int end = i == decisionLevel() ? trail.size() : trail_lim[i];
         progress += pow(F, i) * (end - beg);
     }
-
     return progress / nVars();
 }
 
@@ -906,16 +903,21 @@ lbool Solver::solve_()
     }
 
     // Search:
-    // int curr_restarts = 0; // Comments by Fei: new declaration! We should make it a field! 
+    // int curr_restarts = 0; // Comments by Fei: new declaration! We should make it a field!
     current_restarts = 0; // Comments by Fei: this is the field that replaces the curr_restarts local variable!
     while (remember_status == l_Undef){ // Comments by Fei: replace local variable!
         // double rest_base = luby_restart ? luby(restart_inc, current_restarts) : pow(restart_inc, current_restarts); // Comments by Fei: Change to use current_restarts, directly merge to the assignment of field
-        number_of_conflicts = restart_first * (luby_restart ? luby(restart_inc, current_restarts) : pow(restart_inc, current_restarts)); // Comments by Fei: This is to replace parameter assignment as field assignment!      
+        if (with_restarts) {
+	        number_of_conflicts = restart_first * (luby_restart ? luby(restart_inc, current_restarts) : pow(restart_inc, current_restarts)); // Comments by Fei: This is to replace parameter assignment as field assignment!
+        } else {
+            number_of_conflicts = -1;
+        }
+
 label1:
         remember_status = search(/*rest_base * restart_first*/ 0); // Comments by Fei. Just dummy parameter passed!
         if (env_hold) return l_Undef; // Comments by Fei: If env_hold, we know solver is on hold, just return!
         if (!withinBudget()) break;
-        current_restarts++; // Comments by Fei: replace with field variable   
+        current_restarts++; // Comments by Fei: replace with field variable
     }
 
     if (verbosity >= 1)
@@ -962,8 +964,6 @@ bool Solver::implies(const vec<Lit>& assumps, vec<Lit>& out)
 
 //=================================================================================================
 // Writing CNF to DIMACS:
-// 
-// FIXME: this needs to be rewritten completely.
 
 static Var mapVar(Var x, vec<Var>& map, Var& max)
 {
@@ -1038,111 +1038,15 @@ void Solver::toDimacs(FILE* f, const vec<Lit>& assumps)
 }
 
 
-//=================================================================================================
-// saving a snap of the current state of the SAT problem (for supervised learning of variable decisions)
-// largely copied from toDimacs functions, but want a different name so that I can add more modifications to them later!
-
-// Comments by Fei: this is to print a clause c. 
-void Solver::snapState(FILE* f, Clause& c, vec<Var>& map, Var& max)
-{
-    if (satisfied(c)) return;
-
-    for (int i = 0; i < c.size(); i++)
-        if (value(c[i]) != l_False)
-            //fprintf(f, "%s%d ", sign(c[i]) ? "-" : "", mapVar(var(c[i]), map, max)+1);
-            fprintf(f, "%s%d ", sign(c[i]) ? "-" : "", var(c[i])+1);
-    fprintf(f, "0\n");
-}
-
-// Comments by Fei: mostly copied from toDimacs function (don't want to pollute the original implementation of toDimacs)
-void Solver::snapState(FILE* f, const vec<Lit>& assumps, const Lit next)
-{
-    // Handle case when solver is in contradictory state:
-    if (!ok){
-        fprintf(f, "c solver is in contradictory state!\n");
-        return; }
-
-    vec<Var> map; Var max = 0;
-
-    // Cannot use removeClauses here because it is not safe
-    // to deallocate them at this point. Could be improved.
-    int cnt = 0;
-    for (int i = 0; i < clauses.size(); i++)
-        if (!satisfied(ca[clauses[i]]))
-            cnt++;
-
-    // Comments by Fei: also track learnt clauses
-    for (int i = 0; i < learnts.size(); i++)
-        if (!satisfied(ca[learnts[i]]))
-            cnt++;
-    /* Comments by Fei: remapping the vars are smart, but it masses up the representation of my decision variables
-       I can pass the decision variables to this function, add use the same map, 
-       OR
-       use don't use the map at all. NOT sure which way is better
-    for (int i = 0; i < clauses.size(); i++)
-        if (!satisfied(ca[clauses[i]])){
-            Clause& c = ca[clauses[i]];
-            for (int j = 0; j < c.size(); j++)
-                if (value(c[j]) != l_False)
-                    mapVar(var(c[j]), map, max);
-        }
-
-    // Comments by Fei: also track variables in learnt clauses
-    for (int i = 0; i < learnts.size(); i++)
-        if (!satisfied(ca[learnts[i]])) {
-            Clause& c = ca[learnts[i]];
-            for (int j = 0; j < c.size(); j++)
-                if (value(c[j]) != l_False)
-                    mapVar(var(c[j]), map, max);
-        } */
-
-    // Assumptions are added as unit clauses:
-    cnt += assumps.size();
-    fprintf(f, "p cnf %d %d\n", next_var, cnt);
-    // if the number of unsolved clause is not positive, simply return
-    if (cnt <= 0) return;
-
-    fprintf(f, "%s\n", "c this is assumption clauses");
-    for (int i = 0; i < assumps.size(); i++){
-        assert(value(assumps[i]) != l_False);
-        //fprintf(f, "%s%d 0\n", sign(assumps[i]) ? "-" : "", mapVar(var(assumps[i]), map, max)+1);
-        fprintf(f, "%s%d 0\n", sign(assumps[i]) ? "-" : "", var(assumps[i])+1);
-    }
-    
-    fprintf(f, "%s\n", "c this is all unsatisfied current clauses");
-    for (int i = 0; i < clauses.size(); i++)
-        snapState(f, ca[clauses[i]], map, max);
-    
-    fprintf(f, "%s\n", "c this is all unsatisfied learnt clauses");
-    for (int i = 0; i < learnts.size(); i++)
-        snapState(f, ca[learnts[i]], map, max);
-
-    fprintf(f, "c pick %s%d\n", sign(next)? "-" : "", var(next)+1);
-}
-
-// Comments by Fei: entry point of snapState function, taking a filename and an assumptions list
-void Solver::snapState(const char *file, const vec<Lit>& assumps, const Lit next) {
-    // Comments by Fei: use append mode because we will write multiple states (and decision choices) to the same file
-    FILE* f = fopen(file, "w"); // Comments by Fei: use write mode for RL learning process.
-    if (f == NULL) {
-        fprintf(stderr, "could not open file for snapState %s\n", file), exit(1);
-    }
-    snapState(f, assumps, next);
-    fclose(f);
-}
-
 // Comments by Fei: entry point of saveState function
-void Solver::saveState(const vec<Lit>& assumps) {
-
+void Solver::saveState(const vec<Lit>& assumps, int current_depth) {
     // Handle case when solver is in contradictory state:
     if (!ok){
-        printf("c solver is in contradictory state!\n"); 
-        if (env_state_size > 0) { 
-            delete[] env_state; // delete the heap memory before ending the case.
-            env_state = 0;
+        printf("c solver is in contradictory state!\n");
+        if (state_mode == STATE_IN_PROGRESS) {
+            state_mode = STATE_CONFLICT;
         }
-        env_state_size = -1; // negative env_state_size is indication of contradictory state!
-        return; 
+        return;
     }
 
     // First: count the unresolved clauses.
@@ -1158,85 +1062,80 @@ void Solver::saveState(const vec<Lit>& assumps) {
 
     if (cnt_clause == 0 && cnt_learnt == 0) {
         // SAT has been solved! this is the degenerated case!
-        if (env_state_size > 0) {
-            delete[] env_state; // delete the heap memory before ending the case.
-            env_state = 0;
+        if (state_mode == STATE_IN_PROGRESS) {
+            state_mode = STATE_SOLVED;
         }
-        env_state_size = 0; // 0 valued env_state_size is indication of solved state!
         return;
     }
 
-    // Second: estimate the size needed for storing the state
-    /* each var is at most 4 chars, at most 3 vars per clause, with 0 and \n ending
-    // learnt clauses may have more vars per clause. Use 20 as upper bound
-    // header maybe 20 chars long */
-    int estimate_size = cnt_clause * (4 * 3 + 2) + cnt_learnt * (4 * 20 + 2) + (20);
-    estimate_size += estimate_size / 10; // give 10 percent more relaxation.
+    // if we are here, the problem is not solved yet
+    state_mode = STATE_IN_PROGRESS;
 
-    // Third: set ready the env_state space
-    if (env_state_size < estimate_size) {
-        // need more space (or the first time to declare a space)
-        if (env_state_size > 0) {
-            // we had a smaller state memory already. Should delete!
-            delete[] env_state;
-        }
-        env_state_size = estimate_size;
-        env_state = new char[estimate_size];
-    } else {
-        // we have enough space for state, but we might need to clear it (NOT SURE).
-    } 
+    env_state_metadata[0] = next_var;
+    env_state_metadata[1] = cnt_clause+cnt_learnt;
+    env_state_metadata[2] = current_depth;
 
-    // Fourth: save state in env_state, Should end state with end char
-    int used_space = 0;
-    int temp = snprintf(env_state, env_state_size, "p cnf %d %d\n", next_var, cnt_clause + cnt_learnt + assumps.size());
-    used_space = handle_writting_state(temp, used_space);
-    for (int i = 0; i < clauses.size(); i++) {
-        used_space = saveState(ca[clauses[i]], used_space);
-    }
-    for (int i = 0; i < learnts.size(); i++){
-        used_space = saveState(ca[learnts[i]], used_space);
+    // build graph for the first iteration so that the model
+    // does not fail when it gets an empty graph
+    if (decisions > max_decision_cap) {
+        return;
     }
 
-}
+    env_state_assignments = std::vector<int>(nVars());
+    env_state_activities = std::vector<double>(nVars());
+    for (int i = 0; i < nVars(); i++) {
+        env_state_assignments[i] = toInt(assigns[i]);
+        env_state_activities[i] = activity[i];
+    }
 
-// Comments by Fei: this function writes each clause
-int Solver::saveState(Clause& c, int used_space) {
-    if (satisfied(c)) return used_space;
-    for (int i = 0; i < c.size(); i++) {
-        if (value(c[i]) != l_False) {
-            int temp = snprintf(env_state + used_space, env_state_size - used_space, "%s%d ", sign(c[i]) ? "-" : "", var(c[i])+1);
-            used_space = handle_writting_state(temp, used_space);
+    // clear old ones
+    env_state_clauses.clear();
+    for (int j = 0; j < clauses.size(); j++) {
+        Clause& c = ca[clauses[j]];
+        // the problem header which calculates all clauses
+        if (!satisfied(c)) {
+            // I moved this above because now I do not have to be afraid of forgetting to clean it somewhere else
+            curr_clause.clear();
+            for (int i = 0; i < c.size(); i++) {
+                if (value(c[i]) != l_False) {
+                    curr_clause.push_back(sign(c[i]) ? (-var(c[i])-1): (var(c[i])+1) );
+                }
+            }
+            env_state_clauses.push_back(curr_clause);
         }
     }
-    int temp = snprintf(env_state + used_space, env_state_size - used_space, "0\n");
-    return handle_writting_state(temp, used_space);
-}
 
-// Comments by Fei: this function handles complicated situations about snprintf
-int Solver::handle_writting_state(int temp, int used_space) {
-    if (temp < 0 || temp + used_space >= env_state_size) { 
-        if (env_state_size > 0) {
-            delete[] env_state;
-            env_state = 0;
-            env_state_size = -1;
+    // the next metadata number is the num of initial clauses so that we can identify which are learnts and which are initial
+    env_state_metadata[3] = env_state_clauses.size();
+    // next metadata is number of restarts
+    env_state_metadata[4] = current_restarts;
+//    env_state_metadata[5] = progressEstimate();
+
+    for (int j = 0; j < learnts.size(); j++) {
+        Clause& c = ca[learnts[j]];
+        // the problem header which calculates all clauses
+        if (!satisfied(c)) {
+            curr_clause.clear();
+            for (int i = 0; i < c.size(); i++) {
+                if (value(c[i]) != l_False) {
+                    curr_clause.push_back(sign(c[i]) ? (-var(c[i])-1): (var(c[i])+1) );
+                }
+            }
+            env_state_clauses.push_back(curr_clause);
         }
-        if (temp < 0) throw "writing to state failed\n";
-        else throw "not enough space in state memory\n";
     }
-    else return temp + used_space;
 }
-
 
 
 void Solver::printStats() const
 {
     double cpu_time = cpuTime();
     double mem_used = memUsedPeak();
-    printf("restarts              : %"PRIu64"\n", starts);
-    printf("conflicts             : %-12"PRIu64"   (%.0f /sec)\n", conflicts   , conflicts   /cpu_time);
-    printf("decisions             : %-12"PRIu64"   (%4.2f %% random) (%.0f /sec)\n", decisions, (float)rnd_decisions*100 / (float)decisions, decisions   /cpu_time);
-    printf("propagations          : %-12"PRIu64"   (%.0f /sec)\n", propagations, propagations/cpu_time);
-    printf("conflict literals     : %-12"PRIu64"   (%4.2f %% deleted)\n", tot_literals, (max_literals - tot_literals)*100 / (double)max_literals);
+    printf("restarts              : %" PRIu64 "\n", starts);
+    printf("conflicts             : %-12" PRIu64 "   (%.0f /sec)\n", conflicts   , conflicts   /cpu_time);
+    printf("decisions             : %-12" PRIu64 "   (%4.2f %% random) (%.0f /sec)\n", decisions, (float)rnd_decisions*100 / (float)decisions, decisions   /cpu_time);
+    printf("propagations          : %-12" PRIu64 "   (%.0f /sec)\n", propagations, propagations/cpu_time);
+    printf("conflict literals     : %-12" PRIu64 "   (%4.2f %% deleted)\n", tot_literals, (max_literals - tot_literals)*100 / (double)max_literals);
     if (mem_used != 0) printf("Memory used           : %.2f MB\n", mem_used);
     printf("CPU time              : %g s\n", cpu_time);
 }

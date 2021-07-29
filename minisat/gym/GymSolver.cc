@@ -1,3 +1,23 @@
+/***********************************************************************************[GymSolver.cc]
+Copyright (c) 2003-2006, Niklas Een, Niklas Sorensson
+Copyright (c) 2007-2010, Niklas Sorensson
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+**************************************************************************************************/
+
 #include <errno.h>
 #include <zlib.h>
 
@@ -10,30 +30,52 @@
 
 using namespace Minisat;
 
-//=================================================================================================
-// Constructor/Destructor:
-
-GymSolver::GymSolver(char* satProb) {
+// Graph-Q-SAT UPD: Add additional parameters for the environment generation.
+GymSolver::GymSolver(char* sat_prob, int* adj_mat, int cla_cnt, int var_cnt, bool in_memory, bool with_restarts, int max_decision_cap) {
 	IntOption    verb   ("MAIN", "verb",   "Verbosity level (0=silent, 1=some, 2=more).", 0, IntRange(0, 2));
 	S.verbosity = verb;
-	gzFile in = gzopen(satProb, "rb");
-    if (in == NULL) {
-    	printf("ERROR! Could not open file: %s\n", satProb); 
-    	exit(1);
-    }
-    parse_DIMACS(in, S, true);
-    gzclose(in);
-    asprintf(&(S.snapTo), "%s%s", satProb, "snaps");
+	S.with_restarts = with_restarts;
+    S.max_decision_cap = max_decision_cap;
+
+	if(in_memory){
+        // parse SAT problem from adjacency matrix
+        vec<Lit> lits;
+        int var_sign = 0;
+        for(int cla = 0; cla < cla_cnt; ++cla){
+            lits.clear();
+            for(int var = 0; var < var_cnt; ++var) {
+                if (adj_mat[var + cla * var_cnt] != 0) {
+                    var_sign = adj_mat[var + cla * var_cnt];
+                    lits.push((var_sign > 0) ? mkLit(var) : ~mkLit(var));
+                    // add needed variables to solver
+                    while (var >= S.nVars()) S.newVar();
+                }
+            }
+            if(lits.size() > 0) {
+                S.addClause_(lits);
+            }
+        }
+	}
+	else{
+	    gzFile in = gzopen(sat_prob, "rb");
+        if (in == NULL) {
+            printf("ERROR! Could not open file: %s\n", sat_prob);
+            exit(1);
+        }
+        parse_DIMACS(in, S, true);
+        gzclose(in);
+	}
 
     S.eliminate(true);
     if (!S.okay()){
-    	printf("ERROR! SAT problem from file: %s is UNSAT by simplification\n", satProb);
-    	exit(1);    
+    	//printf("ERROR! SAT problem from file: %s is UNSAT by simplification\n", sat_prob);
+    	//exit(1);
     }    
-    
+
     // Comments by Fei: Now the solveLimited() function really just initialize the problem. It needs steps to finish up!
     vec<Lit> dummy;
     S.solveLimited(dummy);
+
 }
 
 void GymSolver::step(int decision) {
@@ -45,15 +87,29 @@ void GymSolver::step(int decision) {
 	S.step();
 }
 
-double GymSolver::getReward() {
+double GymSolver::get_reward() {
 	return S.env_reward;
 }
 
-bool GymSolver::getDone() {
+bool GymSolver::get_done() {
 	return !S.env_hold;
 }
 
-char* GymSolver::getState() {
-	//return S.snapTo;
-    return S.env_state;
+// Graph-Q-SAT UPD: Get metadata/clauses/activities helpers.
+std::vector<int>* GymSolver::get_metadata() {
+    return &S.env_state_metadata;
 }
+
+std::vector<int>* GymSolver::get_assignments() {
+    return &S.env_state_assignments;
+}
+
+std::vector<std::vector<int> >* GymSolver::get_clauses() {
+    return &S.env_state_clauses;
+}
+
+std::vector<double>* GymSolver::get_activities() {
+    return &S.env_state_activities;
+}
+
+

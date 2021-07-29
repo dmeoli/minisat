@@ -104,7 +104,7 @@ class SimpSolver : public Solver {
     int     asymm_lits;
     int     eliminated_vars;
 
-    // Comments by Fei: step function 
+    // Comments by Fei: step function
     lbool step() {return solve_();}        
 
 
@@ -217,8 +217,8 @@ inline bool SimpSolver::solve        (Lit p, Lit q, Lit r, bool do_simp, bool tu
 inline bool SimpSolver::solve        (const vec<Lit>& assumps, bool do_simp, bool turn_off_simp){ 
     budgetOff(); assumps.copyTo(assumptions); return solve_(do_simp, turn_off_simp) == l_True; }
 
-inline lbool SimpSolver::solveLimited (const vec<Lit>& assumps, bool do_simp, bool turn_off_simp){ 
-    env_hold = false; env_reward = 0.0; env_state = 0; env_state_size = 0; /*Comments by Fei: RL env init */
+inline lbool SimpSolver::solveLimited (const vec<Lit>& assumps, bool do_simp, bool turn_off_simp){
+    env_hold = false; env_reward = 0.0; state_mode = STATE_SOLVED; /*Comments by Fei: RL env init */
     assumps.copyTo(assumptions); return solve_(do_simp, turn_off_simp); }
 
 //=================================================================================================
