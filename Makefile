@@ -81,12 +81,12 @@ sh:	$(BUILD_DIR)/dynamic/bin/$(MINISAT)
 cr:	$(BUILD_DIR)/release/bin/$(MINISAT_CORE)
 cd:	$(BUILD_DIR)/debug/bin/$(MINISAT_CORE)
 cp:	$(BUILD_DIR)/profile/bin/$(MINISAT_CORE)
-csh:	$(BUILD_DIR)/dynamic/bin/$(MINISAT_CORE)
+csh:$(BUILD_DIR)/dynamic/bin/$(MINISAT_CORE)
 
 lr:	$(BUILD_DIR)/release/lib/$(MINISAT_SLIB)
 ld:	$(BUILD_DIR)/debug/lib/$(MINISAT_SLIB)
 lp:	$(BUILD_DIR)/profile/lib/$(MINISAT_SLIB)
-lsh:	$(BUILD_DIR)/dynamic/lib/$(MINISAT_DLIB).$(SOMAJOR).$(SOMINOR)$(SORELEASE)
+lsh:$(BUILD_DIR)/dynamic/lib/$(MINISAT_DLIB).$(SOMAJOR).$(SOMINOR)$(SORELEASE)
 
 ## Build-type Compile-flags:
 $(BUILD_DIR)/release/%.o:			MINISAT_CXXFLAGS +=$(MINISAT_REL) $(MINISAT_RELSYM)
@@ -102,7 +102,7 @@ $(BUILD_DIR)/release/bin/$(MINISAT_CORE):	MINISAT_LDFLAGS += --static $(MINISAT_
 
 ## Executable dependencies
 $(BUILD_DIR)/release/bin/$(MINISAT):	 	$(BUILD_DIR)/release/minisat/simp/Main.o $(BUILD_DIR)/release/lib/$(MINISAT_SLIB)
-$(BUILD_DIR)/debug/bin/$(MINISAT):	 	$(BUILD_DIR)/debug/minisat/simp/Main.o $(BUILD_DIR)/debug/lib/$(MINISAT_SLIB)
+$(BUILD_DIR)/debug/bin/$(MINISAT):	 	    $(BUILD_DIR)/debug/minisat/simp/Main.o $(BUILD_DIR)/debug/lib/$(MINISAT_SLIB)
 $(BUILD_DIR)/profile/bin/$(MINISAT):	 	$(BUILD_DIR)/profile/minisat/simp/Main.o $(BUILD_DIR)/profile/lib/$(MINISAT_SLIB)
 # need the main-file be compiled with fpic?
 $(BUILD_DIR)/dynamic/bin/$(MINISAT):	 	$(BUILD_DIR)/dynamic/minisat/simp/Main.o $(BUILD_DIR)/dynamic/lib/$(MINISAT_DLIB)
