@@ -5,7 +5,10 @@ import random
 from os import listdir
 from os.path import join, realpath, split
 
-import gym
+try:  # prefer the maintained gymnasium; fall back to legacy gym
+    import gymnasium as gym
+except ImportError:
+    import gym
 import numpy as np
 
 from .GymSolver import GymSolver
@@ -150,7 +153,7 @@ class gym_sat_Env(gym.Env):
         clauses_lens = [len(cl) for cl in clauses]
         self.max_clause_len = max(clauses_lens)
         edge_data = np.zeros((sum(clauses_lens) * 2, 2), dtype=np.float32)
-        connectivity = np.zeros((2, edge_data.shape[0]), dtype=np.int)
+        connectivity = np.zeros((2, edge_data.shape[0]), dtype=np.int64)
         ec = 0
         for cl in clauses:
             for l in cl:
@@ -338,7 +341,7 @@ class gym_sat_Env(gym.Env):
         DUMMY_STATE = (
             DUMMY_V,
             np.zeros((2, edge_in_size), dtype=np.float32),
-            np.eye(2, dtype=np.long),
+            np.eye(2, dtype=np.int64),
             np.zeros((1, global_in_size), dtype=np.float32)
         )
         return (
