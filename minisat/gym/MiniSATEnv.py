@@ -206,6 +206,9 @@ class gym_sat_Env(gym.Env):
         if max_decisions_cap is None:
             # max_decisions_cap = sys.maxsize  # long
             max_decisions_cap = np.iinfo(np.intc).max  # i.e., 2**31 - 1
+        # the C++ env takes a 32-bit int; clamp (e.g. the training default is
+        # sys.maxsize == 2**63-1, which would overflow new_GymSolver)
+        max_decisions_cap = int(min(max_decisions_cap, np.iinfo(np.intc).max))
         self.max_decisions_cap = max_decisions_cap
 
         if self.problem_list is not None:
