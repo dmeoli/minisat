@@ -54,6 +54,7 @@ import_array();
 %}
 
 %apply (int* IN_ARRAY2, int DIM1, int DIM2) {(int* adj_mat, int cla_cnt, int var_cnt)};
+%apply (double* IN_ARRAY1, int DIM1) {(double* in_arr, int n)};
 
 // end of Graph-Q-SAT UPD.
 %include "GymSolver.h"

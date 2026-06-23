@@ -235,6 +235,15 @@ class gym_sat_Env(gym.Env):
         self.curr_state, self.is_solved = self.parse_state_as_graph()
         return self.curr_state
 
+    def set_activities(self, activities):
+        """Warm-start the solver's VSIDS activities (indexed by original variable).
+
+        `activities` is a 1-D array; entry v is the activity assigned to MiniSat
+        variable v. The C++ side rebuilds the order heap, so the next VSIDS pick
+        (env.step(-1)) follows these scores. Used by the Q-value warm-start trick.
+        """
+        self.S.set_activities(np.ascontiguousarray(activities, dtype=np.float64))
+
     def step(self, decision, dummy=False):
         # now when we drop variables, we store the mapping
         # convert dropped var decision to the original decision id

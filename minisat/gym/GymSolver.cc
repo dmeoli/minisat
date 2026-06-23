@@ -87,6 +87,12 @@ void GymSolver::step(int decision) {
 	S.step();
 }
 
+// Graph-Q-SAT UPD: warm-start VSIDS activities from a Python (numpy) array.
+void GymSolver::set_activities(double* in_arr, int n) {
+	std::vector<double> acts(in_arr, in_arr + n);
+	S.setActivities(acts);
+}
+
 double GymSolver::get_reward() {
 	return S.env_reward;
 }

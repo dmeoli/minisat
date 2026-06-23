@@ -32,7 +32,8 @@ class GymSolver {
 
 public:
 	GymSolver(char* sat_prob, int* adj_mat, int cla_cnt, int var_cnt, bool in_memory, bool with_restarts, int max_decision_cap);
-	void step(int); 
+	void step(int);
+	void set_activities(double* in_arr, int n);  // Graph-Q-SAT UPD: warm-start VSIDS
 	double get_reward();
 	bool get_done();
 	std::vector<int>* get_metadata();

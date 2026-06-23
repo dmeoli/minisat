@@ -633,6 +633,16 @@ void Solver::rebuildOrderHeap()
     order_heap.build(vs);
 }
 
+// Graph-Q-SAT UPD: overwrite per-variable activities (e.g. with Q-value-derived
+// scores) and rebuild the order heap, warm-starting VSIDS.
+void Solver::setActivities(const std::vector<double>& acts)
+{
+    int n = (int)acts.size();
+    for (Var v = 0; v < nVars() && v < n; v++)
+        activity[v] = acts[v];
+    rebuildOrderHeap();
+}
+
 
 /*_________________________________________________________________________________________________
 |

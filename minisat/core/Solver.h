@@ -175,6 +175,9 @@ public:
     lbool    result = l_True;     // Comments by Fei. This is to replace the local variable in simple solve_().
     // Comments by Fei. This is short-circuit for pickBranchLit, so I can use it as public fuction
     Lit default_pickLit() {return pickBranchLit();}
+    // Graph-Q-SAT UPD: warm-start VSIDS from externally-provided (e.g. Q-derived)
+    // activities, then rebuild the order heap so the next default_pickLit uses them.
+    void setActivities(const std::vector<double>& acts);
     bool with_restarts; //if set to false, no restarts is done if the budget is not set
     int max_decision_cap;
 
